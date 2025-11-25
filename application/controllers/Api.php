@@ -1185,28 +1185,75 @@ class Api extends CI_Controller {
           }
         }
 
-        $response['products_count'] = count($this->db->query("select count(parent_code)
-              from tb_products_search_".$tb_number." tp, ".$store_table." su
-              WHERE tp.id_app = ".$store[0]['id_app']."
-              AND su.id = '". $store[0]['id']."'
-              AND ( tp.id_customer is null ".$where_active_sites.") ".$where. " ".$where_extra_store.
-              " GROUP BY tp.id_app, parent_code, nombre, descripcion, tp.is_esp,tp.category_priority")->result_array());
+        $cust_setting_cond = TRUE;//($data['store_path'] == "tu_tienda");
+        $cust_setting = $this->db->query("SELECT pct_general, pct,pct_outlet FROM ".$store_table." WHERE id = '". $store[0]['id']."'")->result_array()[0];
+
+        if ($cust_setting_cond){
+
+          $query_count = "select count(parent_code)
+                from tb_products_search_".$tb_number." tp
+                WHERE tp.id_app = ".$store[0]['id_app']."
+                AND ( tp.id_customer is null ".$where_active_sites.") ".$where. " ".$where_extra_store.
+                " GROUP BY tp.id_app, parent_code, nombre, descripcion, tp.is_esp,tp.category_priority";
+
+
+          $query_count = str_replace("su.pct_outlet",$cust_setting['pct_outlet'],$query_count);
+          $query_count = str_replace("su.pct",$cust_setting['pct'],$query_count);
+          $query_count = str_replace("pct_general = true",$cust_setting['pct_general']." = 1",$query_count);
+          $query_count = str_replace("pct_general = false",$cust_setting['pct_general']." <> 1",$query_count);
+                
+        } else {
+
+          $query_count = "select count(parent_code)
+                from tb_products_search_".$tb_number." tp, ".$store_table." su
+                WHERE tp.id_app = ".$store[0]['id_app']."
+                AND su.id = '". $store[0]['id']."'
+                AND ( tp.id_customer is null ".$where_active_sites.") ".$where. " ".$where_extra_store.
+                " GROUP BY tp.id_app, parent_code, nombre, descripcion, tp.is_esp,tp.category_priority";
+
+        }
+        $response['products_count'] = count($this->db->query($query_count)->result_array());
 
 
         if (isset($data['load_filter']) && $data['load_filter'] == "1"){
 
-          $_filter = $this->db->query("select MAX(stock) as stock,
-                    ".$this->get_price_function($price_key, $store[0], $decimals, TRUE, FALSE)." AS min_price,
-                    ".$this->get_price_function($price_key, $store[0], $decimals, FALSE, TRUE)." as max_price,
-                    string_agg(DISTINCT(concat(';',color_name)),'|') as color_hex
-                  from tb_products_search_".$tb_number." tp, ".$store_table." su
-                  WHERE tp.id_app = ".$store[0]['id_app']."
-                  AND ".$price_key." > 0
-                  AND su.id = '". $store[0]['id']."'
-                  AND ( tp.id_customer is null ".$where_active_sites.") ".$where_filter. " ".$where_extra_store."
-                  GROUP BY su.pct_general , su.pct, su.pct_outlet, tp.id_category, tp.is_esp,tp.category_priority
-                  ORDER BY color_hex ASC ")->result_array();
+          if ($cust_setting_cond){
 
+              $query_filter = "select MAX(stock) as stock,
+                      ".$this->get_price_function($price_key, $store[0], $decimals, TRUE, FALSE)." AS min_price,
+                      ".$this->get_price_function($price_key, $store[0], $decimals, FALSE, TRUE)." as max_price,
+                      string_agg(DISTINCT(concat(';',color_name)),'|') as color_hex
+                    from tb_products_search_".$tb_number." tp
+                    WHERE tp.id_app = ".$store[0]['id_app']."
+                    AND ".$price_key." > 0
+                    AND ( tp.id_customer is null ".$where_active_sites.") ".$where_filter. " ".$where_extra_store."
+                    GROUP BY tp.id_category, tp.is_esp,tp.category_priority
+                    ORDER BY color_hex ASC ";
+
+
+            $query_filter = str_replace("su.pct_outlet",$cust_setting['pct_outlet'],$query_filter);
+            $query_filter = str_replace("su.pct",$cust_setting['pct'],$query_filter);
+            $query_filter = str_replace("pct_general = true",$cust_setting['pct_general']." = 1",$query_filter);
+            $query_filter = str_replace("pct_general = false",$cust_setting['pct_general']." <> 1",$query_filter);
+                  
+          } else {
+            $query_filter = "select MAX(stock) as stock,
+                      ".$this->get_price_function($price_key, $store[0], $decimals, TRUE, FALSE)." AS min_price,
+                      ".$this->get_price_function($price_key, $store[0], $decimals, FALSE, TRUE)." as max_price,
+                      string_agg(DISTINCT(concat(';',color_name)),'|') as color_hex
+                    from tb_products_search_".$tb_number." tp, ".$store_table." su
+                    WHERE tp.id_app = ".$store[0]['id_app']."
+                    AND ".$price_key." > 0
+                    AND su.id = '". $store[0]['id']."'
+                    AND ( tp.id_customer is null ".$where_active_sites.") ".$where_filter. " ".$where_extra_store."
+                    GROUP BY su.pct_general , su.pct, su.pct_outlet, tp.id_category, tp.is_esp,tp.category_priority
+                    ORDER BY color_hex ASC ";
+          }
+
+          //$response['query_filter'] = $query_filter;
+          //$response['query_count'] = $query_count;
+
+          $_filter = $this->db->query($query_filter)->result_array();
 
           $filter_result = array(
             "stock"=>0,
@@ -1245,8 +1292,50 @@ class Api extends CI_Controller {
           $response['filter'] = $filter_result;
         }
 
-        //price_".strtolower($store[0]['customer_currency'])."_base
-        $query_products = "select parent_code,MAX(item_code) AS itemcode,
+
+        if ($cust_setting_cond){
+
+          
+          /*
+          (
+              [pct_general] => 1
+              [pct] => 30
+              [pct_outlet] => 30
+          )
+          */
+
+          $query_products = "select parent_code,MAX(item_code) AS itemcode,
+              MAX(nombre) AS nombre, MAX(descripcion) AS descripcion,
+              string_agg(DISTINCT(color_hex),'|') as color_hex ,
+              string_agg(DISTINCT(color_name),'|') as color ,
+              string_agg(DISTINCT(id_category::varchar),'|') as id_category ,
+              string_agg(DISTINCT(material::varchar),'|') as material ,
+              string_agg(DISTINCT(talla),'|') as talla_list,
+              CASE WHEN (starts_with(parent_code, 'PRODUCTO_'))
+              THEN MAX(price_".strtolower($store[0]['customer_currency'])."_base)
+              ELSE ".$this->get_price_function($price_key, $store[0],$decimals, FALSE, TRUE)." END AS price,
+              CASE
+                WHEN (is_esp = true) THEN CONCAT('".$this->media_url."',split_part(MAX(tp.images),'///',1))
+                WHEN ('".$store[0]['display_by_sku']."'= '1' AND (SELECT custom_images FROM tb_products_customer_display where id_customer = '".$id_customer."' and (sku = max(tp.item_code) or sku = max(tp.parent_code)) limit 1) = true ) THEN  CONCAT('".$this->media_url."',split_part((SELECT images FROM tb_products_customer_display where id_customer = '".$id_customer."' and (sku = max(tp.item_code) or sku = max(tp.parent_code)) limit 1),'///',1))
+                WHEN (count(parent_code)>1) THEN COALESCE((SELECT url from tb_products_images where id_app = tp.id_app and parent_code = tp.parent_code and type = 'padre' limit 1),(SELECT url from tb_products_images where id_app = tp.id_app and item_code = MAX(tp.item_code) and type = 'color' ORDER BY name ASC LIMIT 1))
+                ELSE COALESCE((SELECT url from tb_products_images where id_app = tp.id_app and item_code = MAX(tp.item_code) and type = 'color' ORDER BY name ASC limit 1),(SELECT url from tb_products_images where id_app = tp.id_app and parent_code = MAX(tp.parent_code) and type = 'padre' ORDER BY name ASC limit 1))
+              END as image,
+              CASE WHEN (count(parent_code)>1) THEN 0 ELSE MAX(stock) END AS stock
+              from tb_products_search_".$tb_number." tp
+              WHERE tp.id_app = ".$store[0]['id_app']." AND ".$price_key." > 0
+              AND ( tp.id_customer is null ".$where_active_sites.") ".$where." ".$where_extra_store."
+              GROUP BY tp.id_app, parent_code,tp.id_category, tp.is_esp,tp.category_priority
+              ORDER BY ".$order."
+              limit ".$data['limit']. " offset ". (($data['page']-1)*$data['limit']);
+
+          $query_products = str_replace("su.pct_outlet",$cust_setting['pct_outlet'],$query_products);
+          $query_products = str_replace("su.pct",$cust_setting['pct'],$query_products);
+          $query_products = str_replace("pct_general = true",$cust_setting['pct_general']." = 1",$query_products);
+          $query_products = str_replace("pct_general = false",$cust_setting['pct_general']." <> 1",$query_products);
+
+          //echo $query_products;
+        } else {
+          $query_products = "select parent_code,MAX(item_code) AS itemcode,
               MAX(nombre) AS nombre, MAX(descripcion) AS descripcion,
               string_agg(DISTINCT(color_hex),'|') as color_hex ,
               string_agg(DISTINCT(color_name),'|') as color ,
@@ -1270,9 +1359,13 @@ class Api extends CI_Controller {
               GROUP BY tp.id_app, parent_code,su.pct_general, su.pct,su.pct_outlet, tp.id_category, tp.is_esp,tp.category_priority
               ORDER BY ".$order."
               limit ".$data['limit']. " offset ". (($data['page']-1)*$data['limit']);
+        }
+
+        //price_".strtolower($store[0]['customer_currency'])."_base
+        
 
         $response['products'] = $this->db->query($query_products)->result_array();
-        $response['query'] = $query_products;
+        //$response['query_products'] = $query_products;
       }
 
       echo json_encode($response);
