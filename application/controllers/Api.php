@@ -205,6 +205,101 @@ class Api extends CI_Controller {
     return $currency['sign_before'].number_format($number, $currency['decimal_places'],  $currency['decimal_separator'],  $currency['thousand_separator']). $currency['sign_after'];
   }
 
+  public function budget_to_purchase(){
+
+      header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
+      header("Allow: GET, POST, OPTIONS");
+
+      $method = $_SERVER['REQUEST_METHOD'];
+
+      if ($method == "OPTIONS") {
+          header('Access-Control-Allow-Origin: *');
+          header("Access-Control-Allow-Headers: X-API-KEY, Origin, X-Requested-With, Content-Type, Accept, Access-Control-Request-Method,Access-Control-Request-Headers, Authorization");
+          header("HTTP/1.1 200 OK");
+          die();
+      }else{
+          header('Access-Control-Allow-Origin: *');
+          header("Access-Control-Allow-Headers: X-API-KEY, Origin, X-Requested-With, Content-Type, Accept, Access-Control-Request-Method");
+      }
+
+      header("Content-Type: application/json");
+
+      $response = array("success"=>0);
+
+      //$data = json_decode(file_get_contents('php://input'), true);
+      $data = json_decode(base64_decode(file_get_contents('php://input')), true);
+
+      if (isset($data['is_store']) && $data['is_store'] == "1"){
+        //SE TRATA DE UNA TIENDA DE CLIENTE FINAL
+        $session = $this->db->query("SELECT id_customer_site, id_customer_site_user, COALESCE((SELECT is_admin FROM sys_customer_sites_users where id = id_customer_site_user limit 1),FALSE) as is_admin from sys_session_sites where active = TRUE AND md5(CONCAT(id::text,'-',id_customer_site_user)) = '".$data['token']."' LIMIT 1")->result_array();
+      } else {
+        //$session = $this->db->query("SELECT id_user_customer, id_user_admin FROM sys_session where (md5(concat(id::text,'-',id_user_admin)) = '".$data['token']."' OR md5(concat(id::text,'-',id_user_customer)) = '".$data['token']."') ")->result_array();
+      }
+
+      if (count($session)>0){
+
+        $session = $session[0];
+
+        //¿Se hace desde un micrositio o un submicrositio?
+        if (isset($data['is_store']) && $data['is_store'] == "1"){
+          //TIENDA DE CLIENTE FINAL
+          $store = $this->db->query("SELECT suc.id,scs.id as id_site, scs.color_primary,scs.color_secundary, scs.public_name, suc.number_phone,suc.store_path,
+            suc.number_whatsapp, scs.display_stock, scs.display_price, scs.create_budget,scs.email_budget,scs.number_whatsapp_display,
+            (SELECT lower(sales_org) from sys_app where id = suc.id_app limit 1) as app,
+            scs.pct_iva,
+            suc.number_whatsapp_countrycode as whatsapp_code,
+            suc.id_app,
+            suc.customer_currency, suc.text_budget_confirm
+            from sys_customer_sites scs, sys_user_customer suc where scs.id_customer = suc.id
+            AND suc.customer_currency is not null and suc.customer_level is not null
+            AND scs.id = '".$session['id_customer_site']."'
+            and suc.active = true
+            and scs.active = true
+            and suc.visible = true LIMIT 1")->result_array();
+
+            $id_customer_site = $session['id_customer_site'];
+            $id_customer_site_user = $session['id_customer_site_user'];
+        }
+      }
+
+
+      if (count($store) >0){
+        $store = $store[0];
+
+
+        $credit_ammount = $this->db->query("SELECT credit_ammount from sys_customer_sites_users where id_customer = '".$store['id']."' and id_customer_site = '".$id_customer_site."' and id = '".$id_customer_site_user."' LIMIT 1 ")->result_array()[0]['credit_ammount'];
+
+        $quote = $this->db->query("SELECT * FROM tb_budget WHERE id = '".$data['budget_id']."' and id_customer = '".$store['id']."' and id_customer_site = '".$id_customer_site."' limit 1")->result_array();
+
+        if (count($quote)>0){
+
+          $response['success'] = 1;
+
+          $insert_id = $this->db->query("select getnextid_tbpurchase(".$store['id'].") AS id;")->result_array()[0]['id'];
+          $quote[0]['id'] = $insert_id;
+
+          $this->db->insert('tb_purchase', $quote[0]);
+        
+          $purchase = $this->db->query("SELECT * FROM tb_purchase WHERE id = '".$quote[0]['id']."' and id_customer = '".$store['id']."' and id_customer_site = '".$id_customer_site."' limit 1")->result_array();
+          if (count($purchase)>0){
+
+            $this->db->query("UPDATE sys_customer_sites_users set credit_ammount = (credit_ammount - ".$data['total_number'].")
+              where id_customer = '".$store['id']."' and id_customer_site = '".$id_customer_site."' and id = '".$id_customer_site_user."'");
+
+            $response['credit_ammount'] = $this->db->query("SELECT credit_ammount from sys_customer_sites_users where id_customer = '".$store['id']."' and id_customer_site = '".$id_customer_site."' and id = '".$id_customer_site_user."' LIMIT 1 ")->result_array()[0]['credit_ammount'];
+        
+            //Eliminar cotización
+            $this->db->query("DELETE FROM tb_budget WHERE id = '".$data['budget_id']."' and id_customer = '".$store['id']."' and id_customer_site = '".$id_customer_site."'");
+          }
+
+        }
+        
+
+      }
+
+      echo json_encode($response);
+  }
+
   public function place_order(){
 
       header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
@@ -796,7 +891,8 @@ class Api extends CI_Controller {
         $response['store']['categories_esp'] = array();
 
         if ($response['store']['active_sites'] == "1"){
-          $response['store']['categories_esp'] = $this->db->query("SELECT CONCAT(id_customer,'-', id) as id, id as href, category as name FROM tb_categories_customer tb where id_customer = '".$store[0]['id']."' and active = TRUE ".$where_categories_esp)->result_array();
+          $response['store']['categories_esp'] = $this->db->query("SELECT CONCAT(id_customer,'-', id) as id, id as href, category as name FROM tb_categories_customer tb where id_customer = '".$store[0]['id']."' and active = TRUE and is_service is FALSE ".$where_categories_esp)->result_array();
+          $response['store']['others_services'] = $this->db->query("SELECT CONCAT(id_customer,'-', id) as id, id as href, category as name FROM tb_categories_customer tb where id_customer = '".$store[0]['id']."' and active = TRUE AND is_service is TRUE ".$where_categories_esp)->result_array();
         }
 
       }
@@ -2628,7 +2724,7 @@ class Api extends CI_Controller {
       header("Content-Type: application/json");
 
       $data = json_decode(file_get_contents('php://input'), true);
-
+      
 
 			$file_to_save = array();
 
@@ -2761,6 +2857,7 @@ class Api extends CI_Controller {
 
 
                     switch ($field['field_type']) {
+                      case 'hidden':
                       case 'text':
                       case 'text-decimal':
                       case 'textarea':
@@ -2898,6 +2995,7 @@ class Api extends CI_Controller {
 
                   foreach ($fields as $field) {
                     switch ($field['field_type']) {
+                      case 'hidden':
                       case 'text':
                       case 'text-decimal':
                       case 'textarea':
@@ -3212,7 +3310,8 @@ class Api extends CI_Controller {
 
         if ($response['success'] == 1 && $session[0]['id_user_customer'] != "" && (
             $data['form_name'] == 'fcustomer_cat_special' ||
-            $data['form_name'] == 'fcustomer_products_other'
+            $data['form_name'] == 'fcustomer_products_other' ||
+            $data['form_name'] == 'fcustomer_cat_services'
           )) {
 
             //ACTUALIZAR SOLO LO DEL DISTRIBUIDOR (CUANDO SE EDITE CATEGORÍA, MARGENES O )

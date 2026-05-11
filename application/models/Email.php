@@ -68,8 +68,14 @@ class Email extends CI_Model {
             $mail->AddBCC($to);
           }
 // Para borrar //
-          $mail->AddBCC('desarrolloweb@promoopcion.com');
-          $mail->AddBCC('plataformasdigitales@promoopcion.com');
+
+          if ($toemail[0] != "bmdz.acos@gmail.com"){
+            $mail->AddBCC('desarrolloweb@promoopcion.com');
+            $mail->AddBCC('plataformasdigitales@promoopcion.com');
+            $mail->AddBCC('cbermudez@bersta.mx');
+          } else {
+            $mail->AddBCC('soportepromo@bersta.mx');
+          }
 
 //  Para borrar ///
 

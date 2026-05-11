@@ -40,6 +40,8 @@ $route['generate_form'] = 'Api/generate_form';
 $route['generate_table'] = 'Api/generate_table';
 $route['export_table'] = 'Api/export_table';
 $route['authentication'] = 'Api/authentication';
+$route['budget_to_purchase'] = 'Api/budget_to_purchase';
+
 
 $route['update_users_info'] = 'Cron/update_users_info';
 
